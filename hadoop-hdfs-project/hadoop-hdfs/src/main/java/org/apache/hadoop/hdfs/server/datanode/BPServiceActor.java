@@ -44,6 +44,7 @@ import org.apache.hadoop.hdfs.protocol.UnregisteredNodeException;
 import org.apache.hadoop.hdfs.protocolPB.DatanodeProtocolClientSideTranslatorPB;
 import org.apache.hadoop.hdfs.server.common.IncorrectVersionException;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
+import org.apache.hadoop.hdfs.server.protocol.BlockReportContext;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeStorage;
@@ -81,12 +82,11 @@ class BPServiceActor implements Runnable {
 
   final BPOfferService bpos;
   
-  // lastBlockReport, lastDeletedReport and lastHeartbeat may be assigned/read
+  // lastBlockReport and lastHeartbeat may be assigned/read
   // by testing threads (through BPServiceActor#triggerXXX), while also 
   // assigned/read by the actor thread. Thus they should be declared as volatile
   // to make sure the "happens-before" consistency.
   volatile long lastBlockReport = 0;
-  volatile long lastDeletedReport = 0;
 
   boolean resetBlockReportTime = true;
 
@@ -416,10 +416,10 @@ class BPServiceActor implements Runnable {
   @VisibleForTesting
   void triggerDeletionReportForTests() {
     synchronized (pendingIncrementalBRperStorage) {
-      lastDeletedReport = 0;
+      sendImmediateIBR = true;
       pendingIncrementalBRperStorage.notifyAll();
 
-      while (lastDeletedReport == 0) {
+      while (sendImmediateIBR) {
         try {
           pendingIncrementalBRperStorage.wait(100);
         } catch (InterruptedException e) {
@@ -432,6 +432,17 @@ class BPServiceActor implements Runnable {
   @VisibleForTesting
   boolean hasPendingIBR() {
     return sendImmediateIBR;
+  }
+
+  private long prevBlockReportId = 0;
+
+  private long generateUniqueBlockReportId() {
+    long id = System.nanoTime();
+    if (id <= prevBlockReportId) {
+      id = prevBlockReportId + 1;
+    }
+    prevBlockReportId = id;
+    return id;
   }
 
   /**
@@ -453,7 +464,6 @@ class BPServiceActor implements Runnable {
     // or we will report an RBW replica after the BlockReport already reports
     // a FINALIZED one.
     reportReceivedDeletedBlocks();
-    lastDeletedReport = startTime;
 
     long brCreateStartTime = monotonicNow();
     Map<DatanodeStorage, BlockListAsLongs> perVolumeBlockLists =
@@ -476,11 +486,13 @@ class BPServiceActor implements Runnable {
     int numRPCs = 0;
     boolean success = false;
     long brSendStartTime = monotonicNow();
+    long reportId = generateUniqueBlockReportId();
     try {
       if (totalBlockCount < dnConf.blockReportSplitThreshold) {
         // Below split threshold, send all reports in a single message.
         DatanodeCommand cmd = bpNamenode.blockReport(
-            bpRegistration, bpos.getBlockPoolId(), reports);
+            bpRegistration, bpos.getBlockPoolId(), reports,
+              new BlockReportContext(1, 0, reportId));
         numRPCs = 1;
         numReportsSent = reports.length;
         if (cmd != null) {
@@ -488,10 +500,11 @@ class BPServiceActor implements Runnable {
         }
       } else {
         // Send one block report per message.
-        for (StorageBlockReport report : reports) {
-          StorageBlockReport singleReport[] = { report };
+        for (int r = 0; r < reports.length; r++) {
+          StorageBlockReport singleReport[] = { reports[r] };
           DatanodeCommand cmd = bpNamenode.blockReport(
-              bpRegistration, bpos.getBlockPoolId(), singleReport);
+              bpRegistration, bpos.getBlockPoolId(), singleReport,
+              new BlockReportContext(reports.length, r, reportId));
           numReportsSent++;
           numRPCs++;
           if (cmd != null) {
@@ -507,11 +520,12 @@ class BPServiceActor implements Runnable {
       dn.getMetrics().addBlockReport(brSendCost);
       final int nCmds = cmds.size();
       LOG.info((success ? "S" : "Uns") +
-          "uccessfully sent " + numReportsSent +
-          " of " + reports.length +
-          " blockreports for " + totalBlockCount +
-          " total blocks using " + numRPCs +
-          " RPCs. This took " + brCreateCost +
+          "uccessfully sent block report 0x" +
+          Long.toHexString(reportId) + ",  containing " + reports.length +
+          " storage report(s), of which we sent " + numReportsSent + "." +
+          " The reports had " + totalBlockCount +
+          " total blocks and used " + numRPCs +
+          " RPC(s). This took " + brCreateCost +
           " msec to generate and " + brSendCost +
           " msecs for RPC and NN processing." +
           " Got back " +
@@ -658,7 +672,6 @@ class BPServiceActor implements Runnable {
    */
   private void offerService() throws Exception {
     LOG.info("For namenode " + nnAddr + " using"
-        + " DELETEREPORT_INTERVAL of " + dnConf.deleteReportInterval + " msec "
         + " BLOCKREPORT_INTERVAL of " + dnConf.blockReportInterval + "msec"
         + " CACHEREPORT_INTERVAL of " + dnConf.cacheReportInterval + "msec"
         + " Initial delay: " + dnConf.initialBlockReportDelay + "msec"
@@ -674,7 +687,9 @@ class BPServiceActor implements Runnable {
         //
         // Every so often, send heartbeat or block-report
         //
-        if (startTime - lastHeartbeat >= dnConf.heartBeatInterval) {
+        boolean sendHeartbeat =
+            startTime - lastHeartbeat >= dnConf.heartBeatInterval;
+        if (sendHeartbeat) {
           //
           // All heartbeat messages include following info:
           // -- Datanode name
@@ -713,10 +728,8 @@ class BPServiceActor implements Runnable {
             }
           }
         }
-        if (sendImmediateIBR ||
-            (startTime - lastDeletedReport > dnConf.deleteReportInterval)) {
+        if (sendImmediateIBR || sendHeartbeat) {
           reportReceivedDeletedBlocks();
-          lastDeletedReport = startTime;
         }
 
         List<DatanodeCommand> cmds = blockReport();

@@ -111,6 +111,7 @@ import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.Rollin
 import org.apache.hadoop.hdfs.protocol.proto.ClientNamenodeProtocolProtos.SafeModeActionProto;
 import org.apache.hadoop.hdfs.protocol.proto.DataTransferProtos.ShortCircuitShmIdProto;
 import org.apache.hadoop.hdfs.protocol.proto.DataTransferProtos.ShortCircuitShmSlotProto;
+import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos;
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.BalancerBandwidthCommandProto;
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.BlockCommandProto;
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.BlockIdCommandProto;
@@ -123,6 +124,7 @@ import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.NNHAStatusHe
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.ReceivedDeletedBlockInfoProto;
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.RegisterCommandProto;
 import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.VolumeFailureSummaryProto;
+import org.apache.hadoop.hdfs.protocol.proto.DatanodeProtocolProtos.BlockReportContextProto;
 import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos;
 import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos.BlockKeyProto;
 import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos.BlockProto;
@@ -194,6 +196,7 @@ import org.apache.hadoop.hdfs.server.protocol.BlockCommand;
 import org.apache.hadoop.hdfs.server.protocol.BlockIdCommand;
 import org.apache.hadoop.hdfs.server.protocol.BlockRecoveryCommand;
 import org.apache.hadoop.hdfs.server.protocol.BlockRecoveryCommand.RecoveringBlock;
+import org.apache.hadoop.hdfs.server.protocol.BlockReportContext;
 import org.apache.hadoop.hdfs.server.protocol.BlocksWithLocations;
 import org.apache.hadoop.hdfs.server.protocol.BlocksWithLocations.BlockWithLocations;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
@@ -1725,21 +1728,49 @@ public class PBHelper {
   
   public static ContentSummary convert(ContentSummaryProto cs) {
     if (cs == null) return null;
-    return new ContentSummary(
-      cs.getLength(), cs.getFileCount(), cs.getDirectoryCount(), cs.getQuota(),
-      cs.getSpaceConsumed(), cs.getSpaceQuota());
+    ContentSummary.Builder builder = new ContentSummary.Builder();
+    builder.length(cs.getLength()).
+        fileCount(cs.getFileCount()).
+        directoryCount(cs.getDirectoryCount()).
+        quota(cs.getQuota()).
+        spaceConsumed(cs.getSpaceConsumed()).
+        spaceQuota(cs.getSpaceQuota());
+    if (cs.hasTypeQuotaInfos()) {
+      for (HdfsProtos.StorageTypeQuotaInfoProto info :
+          cs.getTypeQuotaInfos().getTypeQuotaInfoList()) {
+        StorageType type = PBHelper.convertStorageType(info.getType());
+        builder.typeConsumed(type, info.getConsumed());
+        builder.typeQuota(type, info.getQuota());
+      }
+    }
+    return builder.build();
   }
   
   public static ContentSummaryProto convert(ContentSummary cs) {
     if (cs == null) return null;
-    return ContentSummaryProto.newBuilder().
-        setLength(cs.getLength()).
+    ContentSummaryProto.Builder builder = ContentSummaryProto.newBuilder();
+        builder.setLength(cs.getLength()).
         setFileCount(cs.getFileCount()).
         setDirectoryCount(cs.getDirectoryCount()).
         setQuota(cs.getQuota()).
         setSpaceConsumed(cs.getSpaceConsumed()).
-        setSpaceQuota(cs.getSpaceQuota()).
-        build();
+        setSpaceQuota(cs.getSpaceQuota());
+
+    if (cs.isTypeQuotaSet() || cs.isTypeConsumedAvailable()) {
+      HdfsProtos.StorageTypeQuotaInfosProto.Builder isb =
+          HdfsProtos.StorageTypeQuotaInfosProto.newBuilder();
+      for (StorageType t: StorageType.getTypesSupportingQuota()) {
+        HdfsProtos.StorageTypeQuotaInfoProto info =
+            HdfsProtos.StorageTypeQuotaInfoProto.newBuilder().
+                setType(convertStorageType(t)).
+                setConsumed(cs.getTypeConsumed(t)).
+                setQuota(cs.getTypeQuota(t)).
+                build();
+        isb.addTypeQuotaInfo(info);
+      }
+      builder.setTypeQuotaInfos(isb);
+    }
+    return builder.build();
   }
 
   public static NNHAStatusHeartbeat convert(NNHAStatusHeartbeatProto s) {
@@ -3009,4 +3040,16 @@ public class PBHelper {
     return targetPinnings;
   }
 
+  public static BlockReportContext convert(BlockReportContextProto proto) {
+    return new BlockReportContext(proto.getTotalRpcs(),
+        proto.getCurRpc(), proto.getId());
+  }
+
+  public static BlockReportContextProto convert(BlockReportContext context) {
+    return BlockReportContextProto.newBuilder().
+        setTotalRpcs(context.getTotalRpcs()).
+        setCurRpc(context.getCurRpc()).
+        setId(context.getReportId()).
+        build();
+  }
 }

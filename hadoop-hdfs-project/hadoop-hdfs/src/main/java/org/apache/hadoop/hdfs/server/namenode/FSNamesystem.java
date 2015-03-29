@@ -62,6 +62,7 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_ENABLE_RETRY_CAC
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_ENABLE_RETRY_CACHE_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_LAZY_PERSIST_FILE_SCRUB_INTERVAL_SEC;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_LAZY_PERSIST_FILE_SCRUB_INTERVAL_SEC_DEFAULT;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_INODE_ATTRIBUTES_PROVIDER_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_MAX_OBJECTS_DEFAULT;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_MAX_OBJECTS_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY;
@@ -277,6 +278,7 @@ import org.apache.hadoop.security.token.delegation.DelegationKey;
 import org.apache.hadoop.util.ChunkedArrayList;
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.DataChecksum;
+import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.VersionInfo;
 import org.apache.log4j.Appender;
@@ -535,6 +537,8 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
 
   private final TopConf topConf;
   private TopMetrics topMetrics;
+
+  private INodeAttributeProvider inodeAttributeProvider;
 
   /**
    * Notify that loading of this FSDirectory is complete, and
@@ -841,6 +845,13 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
       this.isDefaultAuditLogger = auditLoggers.size() == 1 &&
         auditLoggers.get(0) instanceof DefaultAuditLogger;
       this.retryCache = ignoreRetryCache ? null : initRetryCache(conf);
+      Class<? extends INodeAttributeProvider> klass = conf.getClass(
+          DFS_NAMENODE_INODE_ATTRIBUTES_PROVIDER_KEY,
+          null, INodeAttributeProvider.class);
+      if (klass != null) {
+        inodeAttributeProvider = ReflectionUtils.newInstance(klass, conf);
+        LOG.info("Using INode attribute provider: " + klass.getName());
+      }
     } catch(IOException e) {
       LOG.error(getClass().getSimpleName() + " initialization failed.", e);
       close();
@@ -1067,6 +1078,10 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
     
     registerMXBean();
     DefaultMetricsSystem.instance().register(this);
+    if (inodeAttributeProvider != null) {
+      inodeAttributeProvider.start();
+      dir.setINodeAttributeProvider(inodeAttributeProvider);
+    }
     snapshotManager.registerMXBean();
   }
   
@@ -1075,6 +1090,10 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
    */
   void stopCommonServices() {
     writeLock();
+    if (inodeAttributeProvider != null) {
+      dir.setINodeAttributeProvider(null);
+      inodeAttributeProvider.stop();
+    }
     try {
       if (blockManager != null) blockManager.close();
     } finally {
@@ -4765,7 +4784,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
   @Metric({"TransactionsSinceLastCheckpoint",
       "Number of transactions since last checkpoint"})
   public long getTransactionsSinceLastCheckpoint() {
-    return getEditLog().getLastWrittenTxId() -
+    return getFSImage().getLastAppliedOrWrittenTxId() -
         getFSImage().getStorage().getMostRecentCheckpointTxId();
   }
   
@@ -4928,14 +4947,13 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
    * Save namespace image.
    * This will save current namespace into fsimage file and empty edits file.
    * Requires superuser privilege and safe mode.
-   * 
-   * @throws AccessControlException if superuser privilege is violated.
-   * @throws IOException if 
    */
-  void saveNamespace() throws AccessControlException, IOException {
+  boolean saveNamespace(final long timeWindow, final long txGap)
+      throws IOException {
     checkOperation(OperationCategory.UNCHECKED);
     checkSuperuserPrivilege();
 
+    boolean saved = false;
     cpLock();  // Block if a checkpointing is in progress on standby.
     readLock();
     try {
@@ -4945,12 +4963,15 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
         throw new IOException("Safe mode should be turned ON "
             + "in order to create namespace image.");
       }
-      getFSImage().saveNamespace(this);
+      saved = getFSImage().saveNamespace(timeWindow, txGap, this);
     } finally {
       readUnlock();
       cpUnlock();
     }
-    LOG.info("New namespace image has been created");
+    if (saved) {
+      LOG.info("New namespace image has been created");
+    }
+    return saved;
   }
   
   /**
@@ -5417,7 +5438,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
         msg += String.format(
           "The reported blocks %d needs additional %d"
           + " blocks to reach the threshold %.4f of total blocks %d.%n",
-          blockSafe, (blockThreshold - blockSafe) + 1, threshold, blockTotal);
+                blockSafe, (blockThreshold - blockSafe), threshold, blockTotal);
         thresholdsMet = false;
       } else {
         msg += String.format("The reported blocks %d has reached the threshold"
@@ -7936,7 +7957,7 @@ public class FSNamesystem implements Namesystem, FSNamesystemMBean,
         throw new IOException("Key " + keyName + " doesn't exist.");
       }
       // If the provider supports pool for EDEKs, this will fill in the pool
-      generateEncryptedDataEncryptionKey(keyName);
+      provider.warmUpEncryptedKeys(keyName);
       createEncryptionZoneInt(src, metadata.getCipher(),
           keyName, logRetryCache);
     } catch (AccessControlException e) {

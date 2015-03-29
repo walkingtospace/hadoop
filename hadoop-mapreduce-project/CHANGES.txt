@@ -256,6 +256,11 @@ Release 2.8.0 - UNRELEASED
 
   IMPROVEMENTS
 
+    MAPREDUCE-6291. Correct mapred queue usage command.
+    (Brahma Reddu Battula via harsh)
+
+    MAPREDUCE-579. Streaming "slowmatch" documentation. (harsh)
+
     MAPREDUCE-6287. Deprecated methods in org.apache.hadoop.examples.Sort
     (Chao Zhang via harsh)
 
@@ -299,6 +304,12 @@ Release 2.8.0 - UNRELEASED
     resolvable. (Peng Zhang via harsh)
 
     MAPREDUCE-6281. Fix javadoc in Terasort. (Albert Chu via ozawa)
+
+    MAPREDUCE-6242. Progress report log is incredibly excessive in 
+    application master. (Varun Saxena via devaraj)
+
+    MAPREDUCE-6294. Remove an extra parameter described in Javadoc of
+    TockenCache. (Brahma Reddy Battula via ozawa)
 
 Release 2.7.0 - UNRELEASED
 
@@ -383,6 +394,9 @@ Release 2.7.0 - UNRELEASED
 
     MAPREDUCE-6265. Make ContainerLauncherImpl.INITIAL_POOL_SIZE configurable 
     to better control to launch/kill containers. (Zhihai Xu via ozawa)
+
+    MAPREDUCE-6292. Use org.junit package instead of junit.framework in
+    TestCombineFileInputFormat. (aajisaka)
 
   OPTIMIZATIONS
 
@@ -492,6 +506,9 @@ Release 2.7.0 - UNRELEASED
 
     MAPREDUCE-6275. Race condition in FileOutputCommitter v2 for
     user-specified task output subdirs (Gera Shegalov and Siqi Li via jlowe)
+
+    MAPREDUCE-6285. ClientServiceDelegate should not retry upon
+    AuthenticationException. (Jonathan Eagles via ozawa)
 
 Release 2.6.1 - UNRELEASED
 

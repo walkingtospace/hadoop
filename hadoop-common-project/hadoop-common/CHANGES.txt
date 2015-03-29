@@ -19,6 +19,8 @@ Trunk (Unreleased)
     HADOOP-11657. Align the output of `hadoop fs -du` to be more Unix-like.
     (aajisaka)
 
+    HADOOP-11553. Formalize the shell API (aw)
+
   NEW FEATURES
 
     HADOOP-6590. Add a username check for hadoop sub-commands (John Smith via aw)
@@ -186,6 +188,9 @@ Trunk (Unreleased)
 
     HADOOP-10115. Exclude duplicate jars in hadoop package under different
     component's lib (Vinayakumar B via aw)
+
+    HADOOP-11524. hadoop_do_classpath_subcommand throws a shellcheck warning.
+    (cnauroth)
 
   BUG FIXES
 
@@ -415,8 +420,6 @@ Trunk (Unreleased)
     HADOOP-10774. Update KerberosTestUtils for hadoop-auth tests when using
     IBM Java (sangamesh via aw)
 
-    HADOOP-11602. Fix toUpperCase/toLowerCase to use Locale.ENGLISH. (ozawa)
-
     HADOOP-11653. shellprofiles should require .sh extension
     (Brahma Reddy Battula via aw)
 
@@ -446,6 +449,10 @@ Release 2.8.0 - UNRELEASED
 
   IMPROVEMENTS
 
+    HADOOP-11719. [Fsshell] Remove bin/hadoop reference from
+    GenericOptionsParser default help text.
+    (Brahma Reddy Battula via harsh)
+
     HADOOP-11692. Improve authentication failure WARN message to avoid user
     confusion. (Yongjun Zhang)
 
@@ -458,12 +465,24 @@ Release 2.8.0 - UNRELEASED
     HADOOP-11447. Add a more meaningful toString method to SampleStat and 
     MutableStat. (kasha)
 
+    HADOOP-11737. mockito's version in hadoop-nfs’ pom.xml shouldn't be
+    specified. (Kengo Seki via ozawa)
+
+    HADOOP-11741. Add LOG.isDebugEnabled() guard for some LOG.debug().
+    (Walter Su via ozawa)
+
   OPTIMIZATIONS
 
   BUG FIXES
 
     HADOOP-10027. *Compressor_deflateBytesDirect passes instance instead of
     jclass to GetStaticObjectField. (Hui Zheng via cnauroth)
+
+    HADOOP-11724. DistCp throws NPE when the target directory is root.
+    (Lei Eddy Xu via Yongjun Zhang) 
+
+    HADOOP-11760. Fix typo of javadoc in DistCp. (Brahma Reddy Battula via
+    ozawa).
 
 Release 2.7.0 - UNRELEASED
 
@@ -705,6 +724,9 @@ Release 2.7.0 - UNRELEASED
 
     HADOOP-9329. document native build dependencies in BUILDING.txt (Vijay Bhat
     via Colin P. McCabe)
+
+    HADOOP-10670. Allow AuthenticationFilters to load secret from signature
+    secret files. (Kai Zheng via wheat9)
 
   OPTIMIZATIONS
 
@@ -1102,6 +1124,8 @@ Release 2.7.0 - UNRELEASED
 
     HADOOP-11670. Regression: s3a auth setup broken. (Adam Budde via stevel)
 
+    HADOOP-11602. Fix toUpperCase/toLowerCase to use Locale.ENGLISH. (ozawa)
+
     HADOOP-11686. MiniKDC cannot change ORG_NAME or ORG_DOMAIN.
     (Duo Zhang via wheat9)
 
@@ -1132,6 +1156,24 @@ Release 2.7.0 - UNRELEASED
 
     HADOOP-11729. Fix link to cgroups doc in site.xml. (Masatake Iwasaki via
     ozawa)
+
+    HADOOP-11609. Correct credential commands info in
+    CommandsManual.html#credential. (Varun Saxena via ozawa)
+
+    HADOOP-11014. Potential resource leak in JavaKeyStoreProvider due to
+    unclosed stream. (ozawa)
+
+    HADOOP-11738. Fix a link of Protocol Buffers 2.5 for download in BUILDING.txt.
+    (ozawa)
+
+    HADOOP-11748. The secrets of auth cookies should not be specified in
+    configuration in clear text. (Li Lu and Haohui Mai via wheat9)
+
+    HADOOP-11691. X86 build of libwinutils is broken.
+    (Kiran Kumar M R via cnauroth)
+
+    HADOOP-11639. Clean up Windows native code compilation warnings related to
+    Windows Secure Container Executor. (Remus Rusanu via cnauroth)
 
 Release 2.6.1 - UNRELEASED
 
